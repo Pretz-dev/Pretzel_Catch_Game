@@ -373,13 +373,14 @@ let dad=null,dadT=30;       // 父ちゃん（お腹見せイベント）
 let bonus=null,balls=[],kidsT=35; // むすめ＆むすこのボーナスステージ
 let barks=[],barkCd=0;      // 「ワン！」吹き出し弾
 const BTN={x:W-70,y:H-64,w:62,h:44}; // 画面上のワン！ボタン
+const STICK={cx:70,cy:H-70,r:44};    // 左下の方向スティック
+const stick={id:null,dx:0,dy:0};
 let trouble=null,troubleCooldown=4,snoreT=0;
 let warn=null;       // トラブルの予兆 {type,t}
 let goldenPend=null; // ゴールデン登場の予兆 {t,y}
 let spawnT=1,momT=12;
 let msgTxt='',msgT=0,shake=0,hurtT=0;
 const keys={};
-let drag=false,target=null;
 
 function msg(t,d=2){msgTxt=t;msgT=d;}
 /* 大イベントは同時に1つだけ（ゴールデン・母ちゃん・父ちゃん・ボーナス・居眠りなど） */
@@ -449,16 +450,26 @@ addEventListener('keydown',e=>{
 addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 
 function toLogical(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};}
+function stickMove(p){
+  const dx=p.x-STICK.cx,dy=p.y-STICK.cy;
+  const d=Math.hypot(dx,dy)||1;
+  const cl=Math.min(d,STICK.r);
+  stick.dx=dx/d*(cl/STICK.r);stick.dy=dy/d*(cl/STICK.r);
+}
+function stickRelease(e){
+  if(stick.id===e.pointerId){stick.id=null;stick.dx=0;stick.dy=0;}
+}
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault();
   if(state!=='playing'){advance();return;}
   if(trouble&&trouble.type==='sleep'){mash();return;}
   const p=toLogical(e);
   if(p.x>=BTN.x&&p.x<=BTN.x+BTN.w&&p.y>=BTN.y&&p.y<=BTN.y+BTN.h){bark();return;}
-  drag=true;target=p;
+  if(Math.hypot(p.x-STICK.cx,p.y-STICK.cy)<=STICK.r*1.8){stick.id=e.pointerId;stickMove(p);}
 });
-cv.addEventListener('pointermove',e=>{if(drag)target=toLogical(e);});
-addEventListener('pointerup',()=>{drag=false;target=null;});
+cv.addEventListener('pointermove',e=>{if(stick.id===e.pointerId)stickMove(toLogical(e));});
+addEventListener('pointerup',stickRelease);
+addEventListener('pointercancel',stickRelease);
 
 function mash(){
   trouble.mash--;snd(500+Math.random()*300,.05,'square',.08);
@@ -541,11 +552,9 @@ function update(dt){
     if(keys['arrowleft']||keys['a'])vx-=1;
     if(keys['arrowright']||keys['d'])vx+=1;
     if(vx||vy){const l=Math.hypot(vx,vy);player.x+=vx/l*sp*dt;player.y+=vy/l*sp*dt;moved=true;}
-    else if(drag&&target){
-      /* 指の位置がしっぽ（左後ろ）に来るように：体は指の右上に見える */
-      const dx=target.x-(player.x+8),dy=target.y-(player.y+42);
-      const d=Math.hypot(dx,dy);
-      if(d>6){player.x+=dx/d*Math.min(sp*dt,d);player.y+=dy/d*Math.min(sp*dt,d);moved=true;}
+    else if(stick.id!==null&&Math.hypot(stick.dx,stick.dy)>0.15){
+      /* 左下スティック：傾けた向きに移動（傾き量でスピード調整） */
+      player.x+=stick.dx*sp*dt;player.y+=stick.dy*sp*dt;moved=true;
     }
     if(moved)drain(18*dt);          // 動くとつかれる
     else sta=Math.min(100,sta+18*dt); // 休むと回復
@@ -841,7 +850,7 @@ function draw(){
     spr(sPretzel,W/2-60,128,5);
     txt('みぎから くる どうぶつを キャッチ！',W/2,228,15,'#ffffff');
     txt('にがすと HPが へるよ（HPは 5まで）',W/2,246,15,'#ffffff');
-    txt('そうさ：やじるしキー / WASD / ゆびで ドラッグ',W/2,264,14,'#c9f2ff');
+    txt('そうさ：やじるしキー / WASD / ひだりしたの スティック',W/2,264,14,'#c9f2ff');
     txt('スペース か ワン！ボタンで ほえて とおくもキャッチ！',W/2,282,14,'#c9f2ff');
     txt('うごきすぎると バテる！ねちゃったら れんだで おこす！',W/2,300,14,'#c9f2ff');
     if(Math.floor(time*2)%2)txt('スペース か タップ で スタート',W/2,320,17,'#7dffa0');
@@ -887,6 +896,23 @@ function draw(){
     ctx.fillStyle=ready?'rgba(255,244,92,0.9)':'rgba(120,120,120,0.7)';
     ctx.fillRect(BTN.x,BTN.y,BTN.w,BTN.h);
     txt('ワン！',BTN.x+BTN.w/2,BTN.y+BTN.h/2,15,ready?'#2b1a12':'#3a3a3a');
+    /* 左下の方向スティック */
+    ctx.globalAlpha=0.4;
+    ctx.fillStyle='#0d0d1a';
+    ctx.beginPath();ctx.arc(STICK.cx,STICK.cy,STICK.r+6,0,6.29);ctx.fill();
+    ctx.fillStyle='#3a3a5e';
+    ctx.beginPath();ctx.arc(STICK.cx,STICK.cy,STICK.r,0,6.29);ctx.fill();
+    ctx.globalAlpha=0.7;
+    txt('▲',STICK.cx,STICK.cy-STICK.r+11,10,'#c9d9f2');
+    txt('▼',STICK.cx,STICK.cy+STICK.r-11,10,'#c9d9f2');
+    txt('◀',STICK.cx-STICK.r+11,STICK.cy,10,'#c9d9f2');
+    txt('▶',STICK.cx+STICK.r-11,STICK.cy,10,'#c9d9f2');
+    ctx.globalAlpha=0.9;
+    ctx.fillStyle='#2b1a12';
+    ctx.beginPath();ctx.arc(STICK.cx+stick.dx*STICK.r,STICK.cy+stick.dy*STICK.r,18,0,6.29);ctx.fill();
+    ctx.fillStyle=stick.id!==null?'#ffe066':'#e8dcc8';
+    ctx.beginPath();ctx.arc(STICK.cx+stick.dx*STICK.r,STICK.cy+stick.dy*STICK.r,15,0,6.29);ctx.fill();
+    ctx.globalAlpha=1;
   }
   floats.forEach(f=>txt(f.txt,f.x,f.y,15,f.c));
   if(hurtT>0){ctx.fillStyle='rgba(255,40,40,0.18)';ctx.fillRect(0,0,W,H);}
