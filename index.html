@@ -27,6 +27,7 @@
 (()=>{
 'use strict';
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
+const VERSION='v1.8 (2026-07-02)'; // 更新のたびに上げる
 const W=640,H=360,GROUND=318,MAXLV=20,MAXHP=5;
 ctx.imageSmoothingEnabled=false;
 
@@ -855,6 +856,7 @@ function draw(){
     txt('うごきすぎると バテる！ねちゃったら れんだで おこす！',W/2,300,14,'#c9f2ff');
     if(Math.floor(time*2)%2)txt('スペース か タップ で スタート',W/2,320,17,'#7dffa0');
     txt('ハイスコア '+hi,W/2,344,13,'#ffd9a8');
+    txt(VERSION,W-5,H-8,10,'#8a8aa5','right'); /* バージョン表記 */
     ctx.restore();return;
   }
 
@@ -945,6 +947,7 @@ function draw(){
     txt('スコア '+score+'　ハイスコア '+hi,W/2,248,18,'#ffd9a8');
     if(Math.floor(time*2)%2)txt('スペース か タップ で タイトルへ',W/2,290,16,'#7dffa0');
   }
+  txt(VERSION,W-5,H-8,10,'#8a8aa5','right'); /* バージョン表記 */
   ctx.restore();
 }
 
