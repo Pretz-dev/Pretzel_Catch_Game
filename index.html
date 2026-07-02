@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="プレッツェル">
+<title>プレッツェルの キャッチだいさくせん！</title>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#14101f;display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:'DotGothic16',monospace;}
+  #wrap{position:relative;width:min(100vw,calc(100vh*16/9));aspect-ratio:16/9;}
+  canvas{width:100%;height:100%;display:block;background:#000;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none;}
+  /* CRT scanlines */
+  #wrap::after{content:'';position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(to bottom,rgba(0,0,0,.18) 0 1px,transparent 1px 3px);}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="640" height="360"></canvas></div>
+<script>
+(()=>{
+'use strict';
+const cv=document.getElementById('game'),ctx=cv.getContext('2d');
+const W=640,H=360,GROUND=318,MAXLV=20,MAXHP=5;
+ctx.imageSmoothingEnabled=false;
+
+/* ---------- pixel sprites ---------- */
+function sprite(rows,pal){
+  const w=Math.max(...rows.map(r=>r.length)),h=rows.length;
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const g=c.getContext('2d');
+  rows.forEach((row,y)=>{for(let x=0;x<row.length;x++){const k=row[x];if(pal[k]){g.fillStyle=pal[k];g.fillRect(x,y,1,1);}}});
+  return c;
+}
+
+/* プレッツェル：茶×白のオージー（写真の配色・ボブテイル） */
+const PPAL={B:'#7c4a2d',D:'#54301b',W:'#f7f2e7',T:'#c98a4b',N:'#2b1a12',h:'#ffffff',p:'#b06a52',P:'#e8849a',c:'#f2a6a6'};
+const sPretzel=sprite([
+"..........................",
+"..............BB....BB....",
+".............BBBB..BBBB...",
+".............BBBBBBBBBB...",
+".............BTTBWWBTTB...",
+".............BNNBWWBNNB...",
+".............BBBWWWWBBB...",
+"..............BWWTTWWB....",
+"..............BWWppWWB....",
+"..BBB..BBBBBBBBWWWWWWB....",
+"..BBBBBBBBBBBBBWWWWWWB....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWW......",
+".BBBBBBBBBBBBBWWWWW.......",
+".BTBB..BBBB...WWWW........",
+".DDDD..DDDD...DDDD........",
+],PPAL);
+const sPretzelSleep=sprite([
+"..........................",
+"..............BB....BB....",
+".............BBBB..BBBB...",
+".............BBBBBBBBBB...",
+".............BTTBWWBTTB...",
+".............BBBBWWBBBB...",
+".............BNNWWWWNNB...",
+"..............BWWTTWWB....",
+"..............BWWppWWB....",
+"..BBB..BBBBBBBBWWWWWWB....",
+"..BBBBBBBBBBBBBWWWWWWB....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWW......",
+".BBBBBBBBBBBBBWWWWW.......",
+".BBBBBBBBBBBB..WWWW.......",
+".DDDDDDDDDDDD..DDDD.......",
+],PPAL);
+/* ふせポーズ（ゴールデンを見たとき） */
+const sPretzelFuse=sprite([
+"..........................",
+"..............BB....BB....",
+".............BBBB..BBBB...",
+".............BBBBBBBBBB...",
+".............BTTBWWBTTB...",
+".............BNNBWWBNNB...",
+".............BBBWWWWBBB...",
+"..............BWWTTWWB....",
+"..............BWWppWWB....",
+"..BBB..BBBBBBBBWWWWWWB....",
+"..BBBBBBBBBBBBBWWWWWWB....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWWW.....",
+".BBBBBBBBBBBBBBWWWWW......",
+".BBBBBBBBBBBBBWWWWW.......",
+".BBBBBBBBBBBB..WWWW.......",
+".DDDDDDDDDDDD..DDDD.......",
+],PPAL);
+/* ゴロンポーズ（父ちゃんに おなかを みせる） */
+const sPretzelBelly=sprite([
+"...........BB..BB...BB....",
+"...........BB..BB...BB....",
+"....BBB...BWWWWWWWWWWWB...",
+"...BTNBB.BWWWWWWWWWWWWWB..",
+"...BBWBBBWWWWWWWWWWWWWWB..",
+"....BBBBWWWWWWWWWWWWWWB...",
+"......BBBBBBBBBBBBBBBB....",
+"........BBB...............",
+],PPAL);
+
+const sCat=sprite([
+"GG...GG.......",
+"GGGGGGG......g",
+"GNGGGNG.....gg",
+"GGGPGGG....gg.",
+".GGgGGgGGgGGg.",
+".GGGGGGGGGGGG.",
+".GGGGGGGGGGG..",
+".GG..GG..GG...",
+".gg..gg..gg...",
+],{G:'#9aa0ad',g:'#6b7180',N:'#1e222b',P:'#e08a9b'});
+
+const sSheep=sprite([
+"..WWWWWWWWWW....",
+".WWWWWWWWWWWW...",
+"FFFWWWWWWWWWWWW.",
+"FNFWWWWWWWWWWWW.",
+"FFFWWWWWWWWWWWW.",
+".WWWWWWWWWWWWW..",
+"..WWWWWWWWWWWW..",
+"...FF....FF.....",
+"...FF....FF.....",
+],{W:'#f2ede2',F:'#4a4a55',N:'#f2ede2'});
+
+const sDog=sprite([
+".OO....OO......",
+".OOOOOOOO.....o",
+".ONOOOONO....oo",
+".OWWPWWO....oo.",
+"..OOOOOOOOOOOO.",
+"..OWWWWOOOOOOO.",
+"..OOOOOOOOOOO..",
+"..OO..OO..OO...",
+"..oo..oo..oo...",
+],{O:'#d98f4e',o:'#a5672f',W:'#f7f2e7',N:'#241609',P:'#241609'});
+
+const sDeer=sprite([
+"A.A.A...........",
+"AA.AA...........",
+".AAA............",
+".CCC............",
+".CNCC...........",
+".CCCCCCCCCCCCC..",
+"..CCWCCWCCWCCC..",
+"..CCCCCCCCCCCC..",
+"..CC...CC...CC..",
+"..CC...CC...CC..",
+"..cc...cc...cc..",
+],{A:'#8a6642',C:'#c1885a',c:'#7d4a28',W:'#f2e6d2',N:'#241609'});
+
+const sSquirrel=sprite([
+"........rrr.",
+".......rrrrr",
+"RR.....rrrrr",
+"RNR....rrrr.",
+"RRRRRRRRrrr.",
+".RRRRRRRrr..",
+".RR..RR.....",
+".rr..rr.....",
+],{R:'#a5653a',r:'#7d4a28',N:'#241609'});
+
+/* ゴールデンレトリーバー（プレッツェルの憧れ・キャッチ対象外） */
+const sGolden=sprite([
+"..GGGGG...........",
+".GGGGGGg..........",
+".GNGGGGg......ggg.",
+".NGGGGGg.....gggg.",
+"..GGGGGGGGGGGGggg.",
+"..GGGGGGGGGGGGGg..",
+"..GWWGGGGGGGGGG...",
+"..GGGGGGGGGGGG....",
+"..GG...GG...GG....",
+"..GG...GG...GG....",
+"..gg...gg...gg....",
+],{G:'#e0b26b',g:'#c4924e',N:'#2b1a12',W:'#f2e2bd'});
+
+const sMom=sprite([
+"..HHHHHH......",
+".HHHHHHHH.....",
+".HSSSSSSH.....",
+".HSNSSNSH.....",
+".HSSSSSSH.....",
+"..SSSSSS......",
+"..DDDDDD......",
+".DDDDDDDDDD...",
+".DAAAAAAAD....",
+".DAAAAAAAD....",
+".DAAAAAAAD....",
+".DDDDDDDDD....",
+"..SS...SS.....",
+"..HH...HH.....",
+],{H:'#4a3226',S:'#e8b08a',N:'#241609',D:'#7a5ba8',A:'#e5637a'});
+
+/* 父ちゃん */
+const sDad=sprite([
+"..HHHHHH......",
+".HHHHHHHH.....",
+".HSSSSSSH.....",
+".HSNSSNSH.....",
+".HSSSSSSH.....",
+"..SSSSSS......",
+"..CCCCCC......",
+".CCCCCCCCCC...",
+".CCCCCCCCCC...",
+".CCCCCCCCC....",
+".PPPPPPPPP....",
+".PPP...PPP....",
+"..SS...SS.....",
+"..HH...HH.....",
+],{H:'#2e2620',S:'#e8b08a',N:'#241609',C:'#4a7fd4',P:'#5a5a6e'});
+
+/* むすめ（ツインテール） */
+const sGirl=sprite([
+".HH.HHHH.HH.",
+".HHHHHHHHHH.",
+".H.SSSSSS.H.",
+".H.SNSSNS.H.",
+".H.SSSSSS.H.",
+"....SSSS....",
+"...RRRRRR...",
+"..RRRRRRRR..",
+"..RRRRRRRR..",
+".RRRRRRRRRR.",
+"...SS..SS...",
+"...RR..RR...",
+],{H:'#4a3226',S:'#e8b08a',N:'#241609',R:'#e87a9e'});
+
+/* むすこ（ぼうし） */
+const sBoy=sprite([
+"..CCCCCC....",
+".CCCCCCCCC..",
+"..SSSSSS....",
+"..SNSSNS....",
+"..SSSSSS....",
+"...SSSS.....",
+"..GGGGGG....",
+".GGGGGGGG...",
+".GGGGGGGG...",
+"..PPPPPP....",
+"..PP..PP....",
+"..SS..SS....",
+],{C:'#4a7fd4',S:'#e8b08a',N:'#241609',G:'#5ab55e',P:'#5a5a6e'});
+
+/* ボール */
+const sBall=sprite([
+".RRRR..",
+"RRWWRR.",
+"RWWWWR.",
+"RWWWWR.",
+"RRWWRR.",
+".RRRR..",
+],{R:'#e04848',W:'#ffffff'});
+
+const sBone=sprite([
+"WW...WW.",
+"WWWWWWW.",
+".WWWWW..",
+"WWWWWWW.",
+"WW...WW.",
+],{W:'#fff6da'});
+
+const sHeart=sprite([
+".RR.RR.",
+"RRRRRRR",
+"RRRRRRR",
+".RRRRR.",
+"..RRR..",
+"...R...",
+],{R:'#e8455a'});
+const sHeartEmpty=sprite([
+".RR.RR.",
+"RRRRRRR",
+"RRRRRRR",
+".RRRRR.",
+"..RRR..",
+"...R...",
+],{R:'#3a2a35'});
+
+/* ---------- animal types ---------- */
+const KINDS=[
+ {id:'sheep',   spr:sSheep,   pts:10,spd:60, minLv:1,name:'ひつじ'},
+ {id:'cat',     spr:sCat,     pts:20,spd:85, minLv:1,name:'ねこ'},
+ {id:'dog',     spr:sDog,     pts:30,spd:105,minLv:2,name:'いぬ'},
+ {id:'deer',    spr:sDeer,    pts:40,spd:130,minLv:4,name:'しか'},
+ {id:'squirrel',spr:sSquirrel,pts:50,spd:165,minLv:6,name:'りす'},
+];
+
+/* ---------- level themes (5面ごとに変化) ---------- */
+const THEMES=[
+ {sky:'#8ecae6',hill:'#74b04a',ground:'#55823a',stripe:'#4a7233',cloud:'#ffffff',night:false},
+ {sky:'#f4a261',hill:'#b0713f',ground:'#8f5a32',stripe:'#7c4c28',cloud:'#ffd9a8',night:false},
+ {sky:'#1d1d38',hill:'#3a3a5c',ground:'#2e2e4a',stripe:'#26263e',cloud:'#5c5c7e',night:true},
+ {sky:'#c9a7d8',hill:'#7fb069',ground:'#618b4a',stripe:'#527a3d',cloud:'#fff1e6',night:false},
+];
+
+/* ---------- audio ---------- */
+let AC=null;
+function snd(f,d,type='square',v=.12,slide=0){
+  try{
+    AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type;o.frequency.setValueAtTime(f,AC.currentTime);
+    if(slide)o.frequency.linearRampToValueAtTime(slide,AC.currentTime+d);
+    g.gain.setValueAtTime(v,AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);
+    o.connect(g);g.connect(AC.destination);
+    o.start();o.stop(AC.currentTime+d);
+  }catch(e){}
+}
+const sfx={
+  catch(){snd(660,.07);setTimeout(()=>snd(990,.1),60);},
+  damage(){snd(150,.35,'sawtooth',.15);},
+  heal(){snd(523,.09);setTimeout(()=>snd(659,.09),80);setTimeout(()=>snd(784,.14),160);},
+  levelup(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>snd(f,.12),i*100));},
+  gameover(){snd(300,.7,'sawtooth',.15,80);},
+  sleep(){snd(180,.4,'sine',.1,120);},
+  rebel(){snd(220,.1,'square');setTimeout(()=>snd(180,.15,'square'),100);},
+  wake(){snd(880,.12);},
+  start(){[392,523,659].forEach((f,i)=>setTimeout(()=>snd(f,.1),i*80));},
+};
+
+/* ---------- BGM（レトロ・チップチューンのループ） ---------- */
+function note(f,when,d,type,v){
+  try{
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type;o.frequency.value=f;
+    g.gain.setValueAtTime(v,when);
+    g.gain.exponentialRampToValueAtTime(.001,when+d);
+    o.connect(g);g.connect(AC.destination);
+    o.start(when);o.stop(when+d);
+  }catch(e){}
+}
+const BGM={
+  lead:[523,659,784,659, 880,784,659,523, 587,698,880,698, 784,659,587,523,
+        523,659,784,880, 1047,880,784,659, 698,587,659,523, 587,0,523,0],
+  bass:[262,0,196,0, 262,0,196,0, 220,0,175,0, 196,0,131,0,
+        262,0,196,0, 262,0,196,0, 175,0,196,0, 262,0,131,0],
+  step:0,next:0,tempo:0.15
+};
+setInterval(()=>{
+  if(state!=='playing'||!AC||document.hidden)return;
+  if(BGM.next<AC.currentTime)BGM.next=AC.currentTime+0.05;
+  while(BGM.next<AC.currentTime+0.25){
+    const i=BGM.step%BGM.lead.length;
+    if(BGM.lead[i])note(BGM.lead[i],BGM.next,0.14,'square',0.035);
+    if(BGM.bass[i])note(BGM.bass[i],BGM.next,0.16,'triangle',0.06);
+    BGM.next+=BGM.tempo;BGM.step++;
+  }
+},80);
+
+/* ---------- game state ---------- */
+let state='title',time=0;
+let level=1,score=0,hp=MAXHP,quota=0,caught=0;
+let sta=100,tired=0; // げんきゲージ：動くと減り、0でバテて動けない
+let hi=+(localStorage.getItem('pretzelHi')||0);
+const player={x:50,y:200,w:78,h:51,scale:3};
+let animals=[],treats=[],floats=[],mom=null;
+let golden=null,goldenT=20; // ゴールデンレトリーバー
+let dad=null,dadT=30;       // 父ちゃん（お腹見せイベント）
+let bonus=null,balls=[],kidsT=35; // むすめ＆むすこのボーナスステージ
+let barks=[],barkCd=0;      // 「ワン！」吹き出し弾
+const BTN={x:W-70,y:H-64,w:62,h:44}; // 画面上のワン！ボタン
+let trouble=null,troubleCooldown=4,snoreT=0;
+let warn=null;       // トラブルの予兆 {type,t}
+let goldenPend=null; // ゴールデン登場の予兆 {t,y}
+let spawnT=1,momT=12;
+let msgTxt='',msgT=0,shake=0,hurtT=0;
+const keys={};
+let drag=false,target=null;
+
+function msg(t,d=2){msgTxt=t;msgT=d;}
+/* 大イベントは同時に1つだけ（ゴールデン・母ちゃん・父ちゃん・ボーナス・居眠りなど） */
+function eventBusy(){
+  return !!(trouble||warn||tired>0||golden||goldenPend||mom||dad||bonus);
+}
+/* りすは大きくうねって飛ぶ、ほかは小さくぷかぷか */
+function animY(a){
+  const sq=a.k.id==='squirrel';
+  return a.y+Math.sin(time*(sq?3:6)+a.ph)*(sq?36:3);
+}
+function catchAnimal(i,fx,fy){
+  const a=animals[i];
+  score+=a.k.pts;caught++;
+  floats.push({x:fx,y:fy,t:1,txt:'+'+a.k.pts,c:'#fff45c'});
+  sfx.catch();animals.splice(i,1);
+  if(caught>=quota){
+    hi=Math.max(hi,score);localStorage.setItem('pretzelHi',hi);
+    if(level>=MAXLV){state='ending';sfx.levelup();}
+    else{state='levelclear';sfx.levelup();}
+  }
+}
+function bark(){
+  if(state!=='playing'||trouble||tired>0||barkCd>0)return;
+  if(sta<8){msg('げんきが たりなくて こえが でない…',1.2);return;}
+  sta-=8;barkCd=0.45; // 吠えるのも体力をつかう
+  barks.push({x:player.x+player.w-6,y:player.y+14});
+  snd(880,.07,'square',.12);setTimeout(()=>snd(660,.06,'square',.1),50);
+}
+function drain(a){
+  sta-=a;
+  if(sta<=0){
+    sta=0;tired=2.6;trouble=null;troubleCooldown=5;
+    snd(200,.4,'sawtooth',.1,90);
+    msg('うごきすぎて バテちゃった！');
+  }
+}
+
+function startLevel(){
+  caught=0;quota=5+Math.ceil(level*0.7);sta=100;tired=0;
+  animals=[];treats=[];floats=[];mom=null;trouble=null;
+  barks=[];barkCd=0;warn=null;goldenPend=null;
+  golden=null;goldenT=12+Math.random()*10;
+  /* 父ちゃんはレベル2,5,8…／娘＆息子はレベル3,6,9…に1回ずつ（同時発生なし） */
+  dad=null;dadT=(level%3===2)?(8+Math.random()*10):1e9;
+  bonus=null;balls=[];kidsT=(level%3===0)?(10+Math.random()*10):1e9;
+  spawnT=1;momT=10+Math.random()*6;troubleCooldown=4;
+  player.x=50;player.y=200;
+  msg('レベル '+level+' スタート！');
+}
+function startGame(){score=0;hp=MAXHP;level=1;startLevel();state='playing';sfx.start();}
+
+/* ---------- input ---------- */
+function advance(){
+  if(state==='title'){startGame();}
+  else if(state==='levelclear'){level++;startLevel();state='playing';}
+  else if(state==='gameover'||state==='ending'){state='title';}
+}
+addEventListener('keydown',e=>{
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
+  keys[e.key.toLowerCase()]=true;
+  if(e.repeat)return;
+  if(state!=='playing'){if(e.key===' '||e.key==='Enter')advance();return;}
+  if(trouble&&trouble.type==='sleep'){mash();return;}
+  if(e.key===' ')bark();
+});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+
+function toLogical(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(state!=='playing'){advance();return;}
+  if(trouble&&trouble.type==='sleep'){mash();return;}
+  const p=toLogical(e);
+  if(p.x>=BTN.x&&p.x<=BTN.x+BTN.w&&p.y>=BTN.y&&p.y<=BTN.y+BTN.h){bark();return;}
+  drag=true;target=p;
+});
+cv.addEventListener('pointermove',e=>{if(drag)target=toLogical(e);});
+addEventListener('pointerup',()=>{drag=false;target=null;});
+
+function mash(){
+  trouble.mash--;snd(500+Math.random()*300,.05,'square',.08);
+  if(trouble.mash<=0){trouble=null;troubleCooldown=6;sfx.wake();msg('おきた！えらい！');}
+}
+
+/* ---------- update ---------- */
+function update(dt){
+  time+=dt;
+  if(msgT>0)msgT-=dt;
+  if(shake>0)shake=Math.max(0,shake-dt*30);
+  if(hurtT>0)hurtT-=dt;
+  floats.forEach(f=>{f.y-=28*dt;f.t-=dt;});
+  floats=floats.filter(f=>f.t>0);
+  if(state!=='playing')return;
+
+  const spdMul=1+(level-1)*0.07;
+
+  /* --- trouble (言うことを聞かない / 居眠り) --- */
+  if(trouble){
+    trouble.t-=dt;
+    if(trouble.type==='rebel'){
+      trouble.wT-=dt;
+      if(trouble.wT<=0){trouble.wT=0.4;const a=Math.random()*Math.PI*2;trouble.vx=Math.cos(a)*130;trouble.vy=Math.sin(a)*130;}
+      player.x+=trouble.vx*dt;player.y+=trouble.vy*dt;
+      drain(20*dt); // 勝手に走り回ってもつかれる
+      if(trouble&&trouble.t<=0){trouble=null;troubleCooldown=6;msg('やっと いうことを きいた！');}
+    }else if(trouble.type==='fuse'){ /* ゴールデンに ふせ */
+      sta=Math.min(100,sta+10*dt);
+      if(trouble.t<=0){trouble=null;troubleCooldown=5;msg('はっ！われにかえった！');}
+    }else if(trouble.type==='belly'){ /* 父ちゃんに おなかを みせる */
+      sta=Math.min(100,sta+12*dt);
+      if(trouble.t<=0){trouble=null;troubleCooldown=4;msg('まんぞく した！');}
+    }else{ /* sleep */
+      snoreT-=dt;
+      sta=Math.min(100,sta+30*dt); // 寝るとげんき回復
+      if(snoreT<=0){snoreT=1.1;sfx.sleep();}
+      if(trouble.t<=0){trouble=null;troubleCooldown=6;sfx.wake();msg('じかんで めがさめた…');}
+    }
+  }else if(tired>0){ /* バテて動けない */
+    tired-=dt;
+    sta=Math.min(100,sta+26*dt);
+    if(tired<=0){sfx.wake();msg('げんき ふっかつ！');}
+  }else{
+    if(bonus){ /* ボーナス中は トラブルおやすみ */
+    }else if(warn){ /* 予兆中（操作はできる） */
+      warn.t-=dt;
+      if(warn.t<=0){
+        if(warn.type==='rebel'){
+          trouble={type:'rebel',t:3+Math.random()*2.5,wT:0,vx:0,vy:0};
+          sfx.rebel();msg('プレッツェルが いうことを きかない！');
+        }else{
+          trouble={type:'sleep',t:8,mash:7+Math.floor(level/3)};
+          snoreT=0;msg('ねちゃった！ れんだで おこして！');
+        }
+        warn=null;
+      }
+    }else{
+      troubleCooldown-=dt;
+      if(troubleCooldown<=0){
+        troubleCooldown=1;
+        const p=Math.min(0.05+level*0.012,0.3); // 1秒ごとの発生率
+        if(Math.random()<p&&!eventBusy()){
+          if(level>=10&&Math.random()<0.5){ // イヤイヤは中盤（レベル10）から
+            warn={type:'rebel',t:2.2};
+            snd(260,.15,'square',.08);
+            msg('プレッツェルが そわそわしはじめた…');
+          }else{
+            warn={type:'sleep',t:2.2};
+            snd(320,.35,'sine',.08,180);
+            msg('プレッツェルは ねむくなってきたようだ…');
+          }
+        }
+      }
+    }
+    /* --- normal movement --- */
+    const sp=170;let vx=0,vy=0,moved=false;
+    if(keys['arrowup']||keys['w'])vy-=1;
+    if(keys['arrowdown']||keys['s'])vy+=1;
+    if(keys['arrowleft']||keys['a'])vx-=1;
+    if(keys['arrowright']||keys['d'])vx+=1;
+    if(vx||vy){const l=Math.hypot(vx,vy);player.x+=vx/l*sp*dt;player.y+=vy/l*sp*dt;moved=true;}
+    else if(drag&&target){
+      const dx=target.x-(player.x+player.w/2),dy=target.y-(player.y+player.h/2);
+      const d=Math.hypot(dx,dy);
+      if(d>6){player.x+=dx/d*Math.min(sp*dt,d);player.y+=dy/d*Math.min(sp*dt,d);moved=true;}
+    }
+    if(moved)drain(18*dt);          // 動くとつかれる
+    else sta=Math.min(100,sta+18*dt); // 休むと回復
+  }
+  player.x=Math.max(6,Math.min(280,player.x));
+  player.y=Math.max(44,Math.min(GROUND-player.h+8,player.y));
+
+  /* --- ボーナスステージ（むすめ＆むすこ登場・ステージの時間停止） --- */
+  if(!bonus){
+    kidsT-=dt;
+    if(kidsT<=0){
+      if(eventBusy()){kidsT=2;} // ほかのイベント中なら待つ
+      else{
+        kidsT=1e9; // このステージでは1回だけ
+        bonus={t:8,ballT:0.6};
+        sfx.levelup();
+        msg('むすめと むすこが きた！ボーナスタイム！',2.5);
+      }
+    }
+  }else{
+    bonus.t-=dt;
+    bonus.ballT-=dt;
+    if(bonus.ballT<=0){ /* ふたりが ボールを なげまくる */
+      bonus.ballT=0.32;
+      const fromGirl=Math.random()<0.5;
+      balls.push({x:W-52,y:fromGirl?116:256,vx:-(150+Math.random()*90),vy:(Math.random()-0.5)*50,ph:Math.random()*6});
+      snd(700+Math.random()*200,.05,'triangle',.06);
+    }
+    for(let i=balls.length-1;i>=0;i--){
+      const b=balls[i];
+      b.x+=b.vx*dt;b.y+=b.vy*dt;
+      const yy=b.y+Math.sin(time*7+b.ph)*8;
+      if(player.x<b.x+14&&player.x+player.w>b.x&&player.y<yy+14&&player.y+player.h>yy){
+        score+=20;floats.push({x:b.x,y:yy,t:1,txt:'+20',c:'#8ad9ff'});
+        sfx.catch();balls.splice(i,1);continue;
+      }
+      if(b.x<-20)balls.splice(i,1);
+    }
+    if(bonus.t<=0){bonus=null;balls=[];msg('ボーナスタイム おわり！');}
+  }
+
+  /* --- spawn animals（ボーナス中はおやすみ） --- */
+  if(!bonus){
+    spawnT-=dt;
+    if(spawnT<=0){
+      spawnT=Math.max(0.5,2.1-level*0.07)*(0.7+Math.random()*0.6);
+      const n=(level>=8&&Math.random()<0.06+level*0.012)?2:1; // 後半は同時に2ひき
+      for(let j=0;j<n;j++){
+        const pool=KINDS.filter(k=>level>=k.minLv);
+        const k=pool[Math.floor(Math.random()*pool.length)];
+        const sc=2,h=k.spr.height*sc;
+        animals.push({k,x:W+10+j*70,y:60+Math.random()*(GROUND-80-h),w:k.spr.width*sc,h,ph:Math.random()*6.28});
+      }
+    }
+  }
+
+  /* --- move animals & collide（ボーナス中は時間停止） --- */
+  if(!bonus)for(let i=animals.length-1;i>=0;i--){
+    const a=animals[i];
+    if(dad){ /* 父ちゃんが いるあいだ どうぶつは にげだす */
+      a.x+=a.k.spd*1.3*dt;
+      if(a.x>W+30){animals.splice(i,1);continue;}
+    }else{
+      a.x-=a.k.spd*spdMul*dt;
+    }
+    const yy=animY(a);
+    const asleep=trouble&&trouble.type==='sleep';
+    if(!asleep&&
+       player.x+8<a.x+a.w-4&&player.x+player.w-8>a.x+4&&
+       player.y+8<yy+a.h-4&&player.y+player.h-8>yy+4){
+      catchAnimal(i,a.x,yy);
+      continue;
+    }
+    if(a.x+a.w<0){
+      animals.splice(i,1);hp--;shake=8;hurtT=0.4;sfx.damage();
+      floats.push({x:20,y:player.y,t:1.2,txt:'にがした！ -1',c:'#ff6b6b'});
+      if(hp<=0){hp=0;state='gameover';hi=Math.max(hi,score);localStorage.setItem('pretzelHi',hi);sfx.gameover();}
+    }
+  }
+
+  /* --- ワン！吹き出し --- */
+  if(barkCd>0)barkCd-=dt;
+  for(let bi=barks.length-1;bi>=0;bi--){
+    const b=barks[bi];
+    b.x+=260*dt;
+    if(b.x>W+40){barks.splice(bi,1);continue;}
+    for(let i=animals.length-1;i>=0;i--){
+      const a=animals[i];
+      const yy=animY(a);
+      if(b.x<a.x+a.w&&b.x+44>a.x&&b.y<yy+a.h&&b.y+22>yy){
+        catchAnimal(i,a.x,yy);
+        barks.splice(bi,1);
+        break;
+      }
+    }
+  }
+
+  /* --- 父ちゃん（プレッツェルは おなかを みせて よろこぶ） --- */
+  if(!bonus){
+    if(!dad){
+      dadT-=dt;
+      if(dadT<=0){
+        if(eventBusy()){dadT=2;} // ほかのイベント中なら待つ
+        else{
+          dadT=1e9; // このステージでは1回だけ
+          dad={x:W+20,y:GROUND-28,phase:'in',t:0};
+          snd(440,.1,'triangle',.08);
+          msg('あっ！父ちゃんが かえってきた！');
+        }
+      }
+    }else{
+      if(dad.phase==='in'){
+        dad.x-=95*dt;
+        if(dad.x<=W-150){
+          dad.phase='stay';dad.t=3.0;
+          if(!trouble&&tired<=0){
+            trouble={type:'belly',t:2.8};warn=null;
+            snd(659,.1,'triangle');
+            msg('ゴロン！おなかを みせて よろこんでいる！どうぶつたちは にげていく！',2.5);
+          }
+        }
+      }else if(dad.phase==='stay'){
+        dad.t-=dt;
+        if(dad.t<=0)dad.phase='out';
+      }else{
+        dad.x+=120*dt;
+        if(dad.x>W+40)dad=null;
+      }
+    }
+  }
+
+  /* --- ゴールデンレトリーバー --- */
+  if(!bonus)if(!golden){
+    if(goldenPend){ /* 予兆：右端に「！」が点滅 */
+      goldenPend.t-=dt;
+      if(goldenPend.t<=0){golden={x:W+10,y:goldenPend.y,seen:false};goldenPend=null;}
+    }else{
+      goldenT-=dt;
+      if(goldenT<=0){
+        if(level<3||eventBusy()){goldenT=4;} // ほかのイベント中なら待つ
+        else{
+          goldenT=16+Math.random()*14;
+          goldenPend={t:2.5,y:80+Math.random()*(GROUND-140)};
+          snd(392,.12,'triangle',.08);
+          msg('とおくから ゴールデンの けはいが する…');
+        }
+      }
+    }
+  }else{
+    golden.x-=75*dt;
+    if(!golden.seen&&golden.x<W-120&&!trouble&&tired<=0){
+      golden.seen=true;
+      trouble={type:'fuse',t:2.8};
+      snd(392,.15,'triangle');
+      msg('ゴールデンレトリーバーだ！おもわず ふせ！');
+    }
+    if(golden.x<-60)golden=null;
+  }
+
+  /* --- 母ちゃん & おやつ --- */
+  if(!bonus)if(!mom){
+    momT-=dt;
+    if(momT<=0){
+      if(eventBusy()){momT=3;} // ほかのイベント中なら待つ
+      else{
+        momT=13+Math.random()*7;
+        if(hp<MAXHP||Math.random()<0.2){
+          mom={x:W+20,y:60+Math.random()*180,phase:'in',t:1,thrown:false};
+        }
+      }
+    }
+  }else{
+    if(mom.phase==='in'){
+      mom.x-=90*dt;
+      if(mom.x<=W-70){mom.phase='throw';mom.t=0.7;}
+    }else if(mom.phase==='throw'){
+      mom.t-=dt;
+      if(!mom.thrown&&mom.t<0.4){
+        mom.thrown=true;
+        treats.push({x:mom.x-10,y:mom.y+16,ph:Math.random()*6});
+        snd(700,.08,'triangle');
+        msg('母ちゃん「プレッツェル！おやつだよ〜！」');
+      }
+      if(mom.t<=0)mom.phase='out';
+    }else{
+      mom.x+=110*dt;
+      if(mom.x>W+30)mom=null;
+    }
+  }
+  if(!bonus)for(let i=treats.length-1;i>=0;i--){
+    const t=treats[i];
+    t.x-=115*dt;
+    const yy=t.y+Math.sin(time*5+t.ph)*10;
+    if(player.x<t.x+16&&player.x+player.w>t.x&&player.y<yy+10&&player.y+player.h>yy){
+      hp=Math.min(MAXHP,hp+1);score+=30;sta=Math.min(100,sta+40);
+      floats.push({x:t.x,y:yy,t:1.2,txt:'おやつ！ HP+1 げんき+40',c:'#7dffa0'});
+      sfx.heal();treats.splice(i,1);continue;
+    }
+    if(t.x<-20)treats.splice(i,1);
+  }
+}
+
+/* ---------- draw ---------- */
+function txt(t,x,y,size,color,align='center'){
+  ctx.font=size+"px 'DotGothic16', monospace";
+  ctx.textAlign=align;ctx.textBaseline='middle';
+  ctx.fillStyle='#000';ctx.fillText(t,x+2,y+2);
+  ctx.fillStyle=color;ctx.fillText(t,x,y);
+}
+function spr(s,x,y,sc){ctx.drawImage(s,Math.round(x),Math.round(y),s.width*sc,s.height*sc);}
+
+function drawBG(theme){
+  ctx.fillStyle=theme.sky;ctx.fillRect(0,0,W,H);
+  if(theme.night){
+    ctx.fillStyle='#fff8c9';
+    for(let i=0;i<24;i++){const sx=(i*97)%W,sy=(i*53)%150;if(Math.floor(time*2+i)%7)ctx.fillRect(sx,sy,2,2);}
+    ctx.fillStyle='#f2e9c8';ctx.fillRect(540,34,26,26);ctx.fillStyle=theme.sky;ctx.fillRect(532,28,22,22);
+  }
+  /* clouds */
+  ctx.fillStyle=theme.cloud;
+  for(let i=0;i<3;i++){
+    const cx=((i*260-time*14)%(W+140)+W+140)%(W+140)-120;
+    const cy=40+i*36;
+    ctx.fillRect(cx,cy,70,14);ctx.fillRect(cx+12,cy-8,44,10);
+  }
+  /* hills */
+  ctx.fillStyle=theme.hill;
+  for(let i=0;i<4;i++){
+    const hx=((i*220-time*24)%(W+240)+W+240)%(W+240)-160;
+    ctx.fillRect(hx,GROUND-46,150,46);
+    ctx.fillRect(hx+22,GROUND-66,106,22);
+    ctx.fillRect(hx+48,GROUND-80,54,16);
+  }
+  /* ground */
+  ctx.fillStyle=theme.ground;ctx.fillRect(0,GROUND,W,H-GROUND);
+  ctx.fillStyle=theme.stripe;
+  const off=-((time*80)%48);
+  for(let x=off;x<W;x+=48)ctx.fillRect(x,GROUND+14,26,6);
+  ctx.fillRect(0,GROUND,W,3);
+}
+
+function drawHUD(){
+  for(let i=0;i<MAXHP;i++)spr(i<hp?sHeart:sHeartEmpty,10+i*20,8,2);
+  /* げんきゲージ */
+  ctx.fillStyle='#000';ctx.fillRect(9,26,96,12);
+  ctx.fillStyle=sta>50?'#7dffa0':sta>25?'#ffe066':'#ff6b6b';
+  ctx.fillRect(11,28,Math.round(92*sta/100),8);
+  txt('げんき',112,33,12,'#ffffff','left');
+  txt('スコア '+score,W-12,16,16,'#ffffff','right');
+  txt('レベル '+level+'／'+MAXLV,W/2,14,16,'#fff45c');
+  txt('あと '+Math.max(0,quota-caught)+'ひき',W/2,32,14,'#c9f2ff');
+}
+
+function drawPlayer(){
+  if(trouble&&trouble.type==='belly'){ /* ゴロン（おなか見せ） */
+    spr(sPretzelBelly,player.x+Math.sin(time*12)*2,player.y+27,3);
+    txt('ゴロン♪',player.x+player.w/2,player.y+10,15,'#ffd9e0');
+    return;
+  }
+  const sleeping=trouble&&trouble.type==='sleep';
+  const fusing=trouble&&trouble.type==='fuse';
+  const s=sleeping?sPretzelSleep:fusing?sPretzelFuse:sPretzel;
+  const bob=(sleeping||fusing)?0:Math.sin(time*7)*2;
+  if(hurtT>0&&Math.floor(time*20)%2)return;
+  spr(s,player.x,player.y+bob,player.scale);
+  if(sleeping){
+    txt('Ｚｚｚ',player.x+player.w+8,player.y-6+Math.sin(time*3)*4,18,'#c9f2ff','left');
+  }
+  if(trouble&&trouble.type==='rebel'){
+    txt('イヤ！',player.x+player.w/2,player.y-14,16,'#ffb0b0');
+  }
+  if(fusing){
+    txt('ふせ…！',player.x+player.w/2,player.y-14,14,'#ffd9a8');
+  }
+  if(warn&&!trouble&&tired<=0){ /* 予兆の吹き出し */
+    txt(warn.type==='sleep'?'ふぁ〜あ…':'そわそわ…',player.x+player.w/2,player.y-14,14,'#e8d9ff');
+  }
+  if(tired>0&&!sleeping){
+    txt('ハァハァ…',player.x+player.w/2,player.y-14,14,'#9ad9ff');
+    if(Math.floor(time*6)%2)txt('💦',player.x+player.w+2,player.y+6,12,'#9ad9ff','left');
+  }
+}
+
+function draw(){
+  const theme=THEMES[Math.floor((level-1)/5)%THEMES.length];
+  ctx.save();
+  if(shake>0)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+  drawBG(theme);
+
+  if(state==='title'){
+    txt('プレッツェルの',W/2,64,30,'#fff45c');
+    txt('キャッチだいさくせん！',W/2,100,30,'#fff45c');
+    spr(sPretzel,W/2-60,128,5);
+    txt('みぎから くる どうぶつを キャッチ！',W/2,228,15,'#ffffff');
+    txt('にがすと HPが へるよ（HPは 5まで）',W/2,246,15,'#ffffff');
+    txt('そうさ：やじるしキー / WASD / ゆびで ドラッグ',W/2,264,14,'#c9f2ff');
+    txt('スペース か ワン！ボタンで ほえて とおくもキャッチ！',W/2,282,14,'#c9f2ff');
+    txt('うごきすぎると バテる！ねちゃったら れんだで おこす！',W/2,300,14,'#c9f2ff');
+    if(Math.floor(time*2)%2)txt('スペース か タップ で スタート',W/2,320,17,'#7dffa0');
+    txt('ハイスコア '+hi,W/2,344,13,'#ffd9a8');
+    ctx.restore();return;
+  }
+
+  /* entities */
+  animals.forEach(a=>spr(a.k.spr,a.x,animY(a),2));
+  if(golden)spr(sGolden,golden.x,golden.y+Math.sin(time*4)*3,3);
+  if(goldenPend&&Math.floor(time*4)%2)txt('！',W-16,goldenPend.y+14,22,'#ffd24a');
+  treats.forEach(t=>spr(sBone,t.x,t.y+Math.sin(time*5+t.ph)*10,2));
+  if(mom){
+    spr(sMom,mom.x,mom.y,2);
+    if(mom.phase==='throw')txt('おやつだよ〜！',mom.x+14,mom.y-12,14,'#ffd9e0');
+  }
+  if(dad){
+    spr(sDad,dad.x,dad.y,2);
+    if(dad.phase==='stay')txt('ただいま〜！',dad.x+14,dad.y-12,14,'#c9e2ff');
+  }
+  if(bonus){ /* むすめ＆むすこ と ボール */
+    spr(sGirl,W-48,92,2);
+    spr(sBoy,W-48,232,2);
+    balls.forEach(b=>spr(sBall,b.x,b.y+Math.sin(time*7+b.ph)*8,2));
+    txt('ボーナスタイム！ のこり '+Math.ceil(bonus.t)+'びょう',W/2,88,17,'#8ad9ff');
+  }
+  drawPlayer();
+
+  /* ワン！吹き出し（まる） */
+  barks.forEach(b=>{
+    const cx=b.x+22,cy=b.y+11;
+    ctx.fillStyle='#2b1a12';
+    ctx.beginPath();ctx.ellipse(cx,cy,26,15,0,0,6.29);ctx.fill();
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.ellipse(cx,cy,24,13,0,0,6.29);ctx.fill();
+    ctx.beginPath();ctx.ellipse(b.x-4,cy+8,5,4,-0.5,0,6.29);ctx.fill(); /* しっぽ */
+    txt('ワン！',cx,cy,13,'#2b1a12');
+  });
+  /* ワン！ボタン */
+  if(state==='playing'){
+    const ready=!(barkCd>0||trouble||tired>0||sta<8);
+    ctx.fillStyle='#2b1a12';ctx.fillRect(BTN.x-2,BTN.y-2,BTN.w+4,BTN.h+4);
+    ctx.fillStyle=ready?'rgba(255,244,92,0.9)':'rgba(120,120,120,0.7)';
+    ctx.fillRect(BTN.x,BTN.y,BTN.w,BTN.h);
+    txt('ワン！',BTN.x+BTN.w/2,BTN.y+BTN.h/2,15,ready?'#2b1a12':'#3a3a3a');
+  }
+  floats.forEach(f=>txt(f.txt,f.x,f.y,15,f.c));
+  if(hurtT>0){ctx.fillStyle='rgba(255,40,40,0.18)';ctx.fillRect(0,0,W,H);}
+  drawHUD();
+  if(msgT>0)txt(msgTxt,W/2,64,18,'#ffffff');
+  if(trouble&&trouble.type==='sleep')
+    txt('れんだ！ あと '+trouble.mash+' かい',W/2,90,20,'#7dffa0');
+
+  if(state==='levelclear'){
+    ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(0,0,W,H);
+    txt('レベル '+level+' クリア！',W/2,130,30,'#fff45c');
+    txt('スコア '+score,W/2,175,20,'#ffffff');
+    if(Math.floor(time*2)%2)txt('スペース か タップ で つぎの レベルへ',W/2,230,16,'#7dffa0');
+  }
+  if(state==='gameover'){
+    ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(0,0,W,H);
+    txt('ゲームオーバー…',W/2,110,30,'#ff6b6b');
+    spr(sPretzelSleep,W/2-36,130,3);
+    txt('スコア '+score+'　ハイスコア '+hi,W/2,215,18,'#ffffff');
+    txt('レベル '+level+' まで がんばった！',W/2,240,15,'#c9f2ff');
+    if(Math.floor(time*2)%2)txt('スペース か タップ で タイトルへ',W/2,285,16,'#7dffa0');
+  }
+  if(state==='ending'){
+    ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(0,0,W,H);
+    txt('ぜんめん クリア！！',W/2,80,32,'#fff45c');
+    spr(sPretzel,W/2-90,110,4);
+    spr(sMom,W/2+40,108,4);
+    spr(sHeart,W/2-8,120,3);
+    txt('プレッツェルは おやつを たくさん もらいました！',W/2,220,16,'#ffffff');
+    txt('スコア '+score+'　ハイスコア '+hi,W/2,248,18,'#ffd9a8');
+    if(Math.floor(time*2)%2)txt('スペース か タップ で タイトルへ',W/2,290,16,'#7dffa0');
+  }
+  ctx.restore();
+}
+
+/* ---------- main loop ---------- */
+window.__step=n=>{for(let i=0;i<n;i++)update(1/60);draw();}; // デバッグ用コマ送り
+window.__lv=n=>{level=n;startLevel();};                        // デバッグ用レベル変更
+window.__golden=()=>{golden={x:W+10,y:150,seen:false};};       // デバッグ用ゴールデン召喚
+window.__dad=()=>{dadT=0.01;};                                 // デバッグ用父ちゃん召喚
+window.__bonus=()=>{kidsT=0.01;};                              // デバッグ用ボーナス開始
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  update(dt);draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

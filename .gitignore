@@ -1,0 +1,5 @@
+*.JPG
+*.jpg
+._*
+.DS_Store
+.claude/
