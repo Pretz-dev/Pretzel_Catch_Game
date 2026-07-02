@@ -538,7 +538,8 @@ function update(dt){
     if(keys['arrowright']||keys['d'])vx+=1;
     if(vx||vy){const l=Math.hypot(vx,vy);player.x+=vx/l*sp*dt;player.y+=vy/l*sp*dt;moved=true;}
     else if(drag&&target){
-      const dx=target.x-(player.x+player.w/2),dy=target.y-(player.y+player.h/2);
+      /* 指の位置がしっぽ（左後ろ）に来るように：体は指の右上に見える */
+      const dx=target.x-(player.x+8),dy=target.y-(player.y+42);
       const d=Math.hypot(dx,dy);
       if(d>6){player.x+=dx/d*Math.min(sp*dt,d);player.y+=dy/d*Math.min(sp*dt,d);moved=true;}
     }
